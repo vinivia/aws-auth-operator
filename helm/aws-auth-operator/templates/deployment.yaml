@@ -20,8 +20,6 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "aws-auth-operator.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
-      annotations:
-        timestamp: {{ date "20060102150405" .Release.Time | quote }}
     spec:
       serviceAccountName: {{ include "aws-auth-operator.name" . }}
       containers:
@@ -39,7 +37,7 @@ spec:
               scheme: HTTP
             initialDelaySeconds: 5
             periodSeconds: 60
-            
+
           readinessProbe:
             httpGet:
               path: /healthz
@@ -47,7 +45,7 @@ spec:
               scheme: HTTP
             initialDelaySeconds: 5
             periodSeconds: 60
-              
+
           envFrom:
             - configMapRef:
                 name: {{ template "aws-auth-operator.fullname" . }}

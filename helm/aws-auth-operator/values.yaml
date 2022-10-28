@@ -2,6 +2,8 @@
 replicaCount: 1
 
 image:
+  repository: ghcr.io/vinivia/aws-auth-operator
+  tag: latest
   pullPolicy: Always
 
 alerts:
@@ -13,3 +15,16 @@ env:
   variables:
     data:
       USE_PROTECTED_MAPPING: true
+
+resources:
+  limits:
+    cpu: 50m
+  requests:
+    cpu: 10m
+
+
+#nodeSelector:
+#
+#affinity:
+#
+#tolerations:
