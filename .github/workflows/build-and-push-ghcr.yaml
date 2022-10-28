@@ -1,0 +1,127 @@
+---
+name: 'aws-auth-operator docker build'
+
+on:
+  push:
+    branches:
+      - 'master'
+      - 'main'
+  pull_request:
+    branches:
+      - '*'
+
+# If another instance of this workflow is started for the same PR, cancel the
+# old one. If a PR is updated and a new test run is started, the old test run
+# will be cancelled automatically to conserve resources.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.namespace || github.head_ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: eu-central-1
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Build and publish container ${{ github.head_ref || github.ref_name }}
+    runs-on: ubuntu-latest
+    env:
+      AWS_EC2_METADATA_DISABLED: true
+      AWS_DEFAULT_REGION: eu-central-1
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+#
+#      - name: Configure AWS credentials
+#        uses: aws-actions/configure-aws-credentials@v1
+#        with:
+#          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#          aws-region: ${{ env.AWS_REGION }}
+#
+#      - name: Login to Amazon ECR
+#        id: login-ecr
+#        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: docker-meta
+        uses: docker/metadata-action@v3
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=auto
+          tags: |
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build Operator
+        id: docker-image-build
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            DOTENV="${{ steps.env.outputs.dotenv }}"
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.docker-meta.outputs.tags }}
+
+      - name: Find Comment
+        id: find-comment
+        uses: peter-evans/find-comment@v2
+        if: ${{ github.event.pull_request }}
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Environment Link
+
+      - name: Render template
+        id: template
+        uses: chuhlomin/render-template@v1.4
+        if: ${{ github.event.pull_request }}
+        with:
+          template: .github/comment-template-preview-env.md
+          vars: |
+            link: ${{ env.NAMESPACE }}.${{ github.event.inputs.baseDomain }}
+            argocd: ${{ steps.argocd.outputs.build-log }}
+
+      - name: Create or update comment
+        id: create-or-update-comment
+        uses: peter-evans/create-or-update-comment@v2
+        if: ${{ github.event.pull_request }}
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: ${{ steps.template.outputs.result }}
+          edit-mode: replace
+
+      - name: Slack notification
+        uses: rtCamp/action-slack-notify@master
+        env:
+          SLACK_CHANNEL: engineering
+          SLACK_MESSAGE: 'Boring build of internal stuff. The aws-auth-operator has been successfully built.'
+          SLACK_TITLE: 'Docker Build - aws-auth-operator'
+          SLACK_USERNAME: 'Vinivia Automation'
+          #SLACK_ICON: "[icon URL]"
+          SLACK_COLOR: '#228B22'
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          MSG_MINIMAL: false
